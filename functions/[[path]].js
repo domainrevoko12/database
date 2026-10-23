@@ -186,6 +186,27 @@ async function api(request, env, url) {
     return json({ whatsapp: data.whatsapp, telegram: data.telegram, rawUrl: rawUrl(env) });
   }
 
+  if (route === "debug" && method === "GET") {
+    const c = cfg(env);
+    const probe = async (u, init) => {
+      const r = await fetch(u, init);
+      const t = await r.text();
+      let j = null;
+      try { j = JSON.parse(t); } catch {}
+      return { status: r.status, message: j?.message, permissions: j?.permissions, sha: j?.sha };
+    };
+    return json({
+      config: { owner: c.owner, repo: c.repo, path: c.path, branch: c.branch },
+      rawUrl: rawUrl(env),
+      repo: await probe(`https://api.github.com/repos/${c.owner}/${c.repo}`, { headers: ghHeaders(env) }),
+      file: await probe(
+        `https://api.github.com/repos/${c.owner}/${c.repo}/contents/${c.path}?ref=${encodeURIComponent(c.branch)}`,
+        { headers: ghHeaders(env) },
+      ),
+      raw: await probe(rawUrl(env), { method: "HEAD" }),
+    });
+  }
+
   if (route === "whatsapp" && method === "POST") {
     const { number } = await request.json().catch(() => ({}));
     const num = String(number ?? "").replace(/[\s()-]/g, "");
