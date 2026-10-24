@@ -664,7 +664,9 @@ const tgView = () => `
   <div id="tgTable">${tableHtml(state.data.telegram, "tg")}</div>
 </div>`;
 
-const rawView = () => `
+const rawView = () => {
+  const refsUrl = state.data.rawUrlRefs || (state.data.rawUrl ? state.data.rawUrl.replace(/\/(main|master)\//, "/refs/heads/$1/") : "");
+  return `
 <div class="card">
   ${hero("Database", "Raw file from the database repository")}
   ${statsHtml()}
@@ -672,26 +674,40 @@ const rawView = () => `
     ${ICON.info}
     <div>
       <strong>Target Repository:</strong> Link mengarah ke file <code>database.json</code> pada repository GitHub.
-      Perubahan data langsung tersimpan di GitHub. (Catatan: CDN publik GitHub Raw memiliki cache ~5 menit).
+      Perubahan data langsung tersimpan di GitHub. Kedua format URL di bawah ini valid dan mengarah ke file yang sama. (Catatan: CDN publik GitHub Raw memiliki cache ~5 menit).
     </div>
   </div>
   <div class="field">
-    <label>Raw URL</label>
+    <label>Raw URL (Format Standar)</label>
     <div class="inwrap">
       <span class="ic">${ICON.raw}</span>
       <input id="rawUrl" readonly value="${esc(state.data.rawUrl || "")}">
     </div>
   </div>
-  <div style="display:flex;gap:10px;flex-wrap:wrap">
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
     <button class="btn sm" id="copyRaw" style="flex:1;min-width:140px">${ICON.copy}<span>Salin Link</span></button>
     <a class="btn sm ghost" id="openRaw" href="${esc(state.data.rawUrl || "#")}" target="_blank" rel="noopener" style="flex:1;min-width:140px">${ICON.out}<span>Buka</span></a>
     <button class="btn sm ghost" id="refreshRaw" style="flex:1;min-width:140px">${ICON.refresh}<span>Muat Ulang</span></button>
   </div>
+
+  <div class="field">
+    <label>Raw URL (Format refs/heads)</label>
+    <div class="inwrap">
+      <span class="ic">${ICON.raw}</span>
+      <input id="rawUrlRefs" readonly value="${esc(refsUrl)}">
+    </div>
+  </div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <button class="btn sm ghost" id="copyRawRefs" style="flex:1;min-width:140px">${ICON.copy}<span>Salin Link (refs/heads)</span></button>
+    <a class="btn sm ghost" id="openRawRefs" href="${esc(refsUrl || "#")}" target="_blank" rel="noopener" style="flex:1;min-width:140px">${ICON.out}<span>Buka (refs/heads)</span></a>
+  </div>
+
   <div class="field" style="margin-top:20px">
-    <label>Isi database.json</label>
+    <label>Isi database.json (Real-time Live)</label>
     <div class="rawbox" id="rawBody">memuat…</div>
   </div>
 </div>`;
+};
 
 function tableHtml(items, type) {
   const q = state.q.trim().toLowerCase();
@@ -824,6 +840,20 @@ function bind() {
         toast("Link Raw GitHub disalin ke clipboard", "");
       } catch {
         el("rawUrl").select();
+        toast("Tekan Ctrl+C untuk menyalin", "");
+      }
+    };
+  }
+
+  const copyRefs = el("copyRawRefs");
+  if (copyRefs) {
+    copyRefs.onclick = async () => {
+      const u = el("rawUrlRefs").value;
+      try {
+        await navigator.clipboard.writeText(u);
+        toast("Link Raw (refs/heads) disalin", "");
+      } catch {
+        el("rawUrlRefs").select();
         toast("Tekan Ctrl+C untuk menyalin", "");
       }
     };

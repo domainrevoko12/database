@@ -120,6 +120,11 @@ const rawUrl = (env) => {
   return `https://raw.githubusercontent.com/${c.owner}/${c.repo}/${c.branch}/${c.path}`;
 };
 
+const rawUrlRefs = (env) => {
+  const c = cfg(env);
+  return `https://raw.githubusercontent.com/${c.owner}/${c.repo}/refs/heads/${c.branch}/${c.path}`;
+};
+
 const ghHeaders = (env) => {
   const c = cfg(env);
   const h = {
@@ -279,6 +284,7 @@ async function api(request, env, url) {
       whatsapp: data.whatsapp,
       telegram: data.telegram,
       rawUrl: rawUrl(env),
+      rawUrlRefs: rawUrlRefs(env),
       config: {
         owner: cfg(env).owner,
         repo: cfg(env).repo,
