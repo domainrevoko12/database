@@ -7,7 +7,7 @@ const SHELL = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="dark">
+<meta name="color-scheme" content="light dark">
 <title>Database</title>
 <link rel="icon" href="data:,">
 </head>
@@ -52,7 +52,8 @@ function ctEq(a, b) {
   return x === 0;
 }
 
-const secret = (env) => env.SESSION_SECRET || env.ADMIN_PASSWORD || "";
+const secret = (env) =>
+  env.SESSION_SECRET || env.SECRET || env.ADMIN_PASSWORD || env.PW_ADMIN_LOGIN || "cf-pages-db-secret-session-key";
 
 async function sign(key, payload) {
   const k = await crypto.subtle.importKey("raw", te.encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
@@ -60,9 +61,10 @@ async function sign(key, payload) {
 }
 
 async function passwordOk(env, given) {
-  if (!env.ADMIN_PASSWORD) return false;
+  const pw = env.ADMIN_PASSWORD || env.PW_ADMIN_LOGIN || env.PASSWORD || "";
+  if (!pw) return false;
   const a = new Uint8Array(await crypto.subtle.digest("SHA-256", te.encode(String(given))));
-  const b = new Uint8Array(await crypto.subtle.digest("SHA-256", te.encode(String(env.ADMIN_PASSWORD))));
+  const b = new Uint8Array(await crypto.subtle.digest("SHA-256", te.encode(String(pw))));
   return ctEq(a, b);
 }
 
@@ -95,12 +97,22 @@ async function checkSession(env, request) {
 const setCookie = (value, request) =>
   `session=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=28800${new URL(request.url).protocol === "https:" ? "; Secure" : ""}`;
 
-/* ---------- GitHub storage ---------- */
+/* ---------- GitHub storage configuration ---------- */
+const isPlaceholder = (val) =>
+  !val || val === "username-repo-database" || val === "nama-repo-database";
+
 const cfg = (env) => {
-  const owner = env.GITHUB_REPO_USERNAME;
-  const repo = env.GITHUB_REPO_NAME;
-  if (!owner || !repo || !env.GITHUB_TOKEN) throw new Error("Konfigurasi GitHub belum lengkap (GITHUB_TOKEN / GITHUB_REPO_USERNAME / GITHUB_REPO_NAME)");
-  return { owner, repo, path: env.GITHUB_FILE_PATH || "database.json", branch: env.GITHUB_BRANCH || "main" };
+  const rawOwner = env.GITHUB_REPO_USERNAME || env.GITHUB_OWNER || env.GITHUB_USER || env.OWNER || "";
+  const rawRepo = env.GITHUB_REPO_NAME || env.GITHUB_REPO || env.REPO || "";
+
+  // Fallback to actual repo "domainrevoko12/database" if empty or placeholder
+  const owner = isPlaceholder(rawOwner) ? "domainrevoko12" : rawOwner;
+  const repo = isPlaceholder(rawRepo) ? "database" : rawRepo;
+  const token = env.GITHUB_TOKEN || env.GH_TOKEN || env.TOKEN || "";
+  const path = env.GITHUB_FILE_PATH || env.FILE_PATH || "database.json";
+  const branch = env.GITHUB_BRANCH || env.BRANCH || "main";
+
+  return { owner, repo, token, path, branch };
 };
 
 const rawUrl = (env) => {
@@ -108,29 +120,95 @@ const rawUrl = (env) => {
   return `https://raw.githubusercontent.com/${c.owner}/${c.repo}/${c.branch}/${c.path}`;
 };
 
-const ghHeaders = (env) => ({
-  accept: "application/vnd.github+json",
-  authorization: `Bearer ${env.GITHUB_TOKEN}`,
-  "x-github-api-version": "2022-11-28",
-  "user-agent": "add-database",
-});
+const ghHeaders = (env) => {
+  const c = cfg(env);
+  const h = {
+    accept: "application/vnd.github+json",
+    "x-github-api-version": "2022-11-28",
+    "user-agent": "add-database",
+  };
+  if (c.token) {
+    h.authorization = `Bearer ${c.token}`;
+  }
+  return h;
+};
+
+function parseDbContent(rawText) {
+  let parsed = null;
+  try {
+    if (rawText && rawText.trim()) parsed = JSON.parse(rawText);
+  } catch {}
+
+  let whatsapp = [];
+  let telegram = [];
+
+  if (Array.isArray(parsed)) {
+    // Legacy array format compatibility
+    whatsapp = parsed.map((item, idx) => ({
+      id: item.id || `wa-${idx}-${Date.now()}`,
+      number: typeof item === "string" ? item : item.number || "",
+      status: item.status || "active",
+      createdAt: item.createdAt || new Date().toISOString(),
+    }));
+  } else if (parsed && typeof parsed === "object") {
+    if (Array.isArray(parsed.whatsapp)) {
+      whatsapp = parsed.whatsapp.map((item, idx) => ({
+        id: item.id || `wa-${idx}-${Date.now()}`,
+        number: typeof item === "string" ? item : item.number || "",
+        status: item.status || "active",
+        createdAt: item.createdAt || new Date().toISOString(),
+      }));
+    }
+    if (Array.isArray(parsed.telegram)) {
+      telegram = parsed.telegram.map((item, idx) => ({
+        id: item.id || `tg-${idx}-${Date.now()}`,
+        token: typeof item === "string" ? item : item.token || "",
+        status: item.status || "active",
+        createdAt: item.createdAt || new Date().toISOString(),
+      }));
+    }
+  }
+
+  return { whatsapp, telegram };
+}
 
 async function readDb(env) {
   const c = cfg(env);
+
+  if (!c.token) {
+    // If no token is provided, attempt to fetch from public raw URL as fallback
+    try {
+      const publicRes = await fetch(rawUrl(env), { cache: "no-store" });
+      if (publicRes.ok) {
+        const text = await publicRes.text();
+        return { data: parseDbContent(text), sha: null };
+      }
+    } catch {}
+    throw new Error("Konfigurasi GITHUB_TOKEN belum diatur pada environment variables.");
+  }
+
   const url = `https://api.github.com/repos/${c.owner}/${c.repo}/contents/${c.path}?ref=${encodeURIComponent(c.branch)}`;
   const res = await fetch(url, { headers: ghHeaders(env) });
   if (res.status === 404) return { data: { whatsapp: [], telegram: [] }, sha: null };
-  if (!res.ok) throw new Error(`GitHub ${res.status}: ${(await res.text()).slice(0, 160)}`);
+  if (!res.ok) {
+    const txt = await res.text();
+    let msg = txt.slice(0, 160);
+    try { msg = JSON.parse(txt).message || msg; } catch {}
+    throw new Error(`GitHub ${res.status}: ${msg}`);
+  }
   const j = await res.json();
-  const data = JSON.parse(unb64(j.content.replace(/\s/g, "")));
+  const rawText = unb64((j.content || "").replace(/\s/g, ""));
   return {
-    data: { whatsapp: data.whatsapp ?? [], telegram: data.telegram ?? [] },
+    data: parseDbContent(rawText),
     sha: j.sha,
   };
 }
 
 async function writeDb(env, data, sha, message) {
   const c = cfg(env);
+  if (!c.token) {
+    throw new Error("GITHUB_TOKEN belum diatur. Tambahkan GITHUB_TOKEN di environment variables Cloudflare.");
+  }
   const body = { message, content: b64(JSON.stringify(data, null, 2)), branch: c.branch };
   if (sha) body.sha = sha;
   const res = await fetch(`https://api.github.com/repos/${c.owner}/${c.repo}/contents/${c.path}`, {
@@ -139,7 +217,10 @@ async function writeDb(env, data, sha, message) {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const err = new Error(`GitHub ${res.status}: ${(await res.text()).slice(0, 160)}`);
+    const txt = await res.text();
+    let msg = txt.slice(0, 160);
+    try { msg = JSON.parse(txt).message || msg; } catch {}
+    const err = new Error(`GitHub ${res.status}: ${msg}`);
     err.status = res.status;
     throw err;
   }
@@ -158,10 +239,21 @@ async function mutate(env, fn, message) {
       await writeDb(env, next, sha, message);
       return next;
     } catch (err) {
-      if (err.status === 409 && i < 2) continue; // retry once on sha conflict
+      if (err.status === 409 && i < 2) {
+        // Exponential backoff for sha conflict
+        await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+        continue;
+      }
       throw err;
     }
   }
+}
+
+function cleanWaNumber(raw) {
+  let s = String(raw || "").trim();
+  s = s.replace(/[\s().-]/g, "");
+  if (s.startsWith("+")) s = s.slice(1);
+  return s;
 }
 
 /* ---------- API ---------- */
@@ -183,20 +275,39 @@ async function api(request, env, url) {
 
   if (route === "data" && method === "GET") {
     const { data } = await readDb(env);
-    return json({ whatsapp: data.whatsapp, telegram: data.telegram, rawUrl: rawUrl(env) });
+    return json({
+      whatsapp: data.whatsapp,
+      telegram: data.telegram,
+      rawUrl: rawUrl(env),
+      config: {
+        owner: cfg(env).owner,
+        repo: cfg(env).repo,
+        path: cfg(env).path,
+        branch: cfg(env).branch,
+      },
+    });
+  }
+
+  if (route === "raw-data" && method === "GET") {
+    const { data } = await readDb(env);
+    return json(data);
   }
 
   if (route === "debug" && method === "GET") {
     const c = cfg(env);
     const probe = async (u, init) => {
-      const r = await fetch(u, init);
-      const t = await r.text();
-      let j = null;
-      try { j = JSON.parse(t); } catch {}
-      return { status: r.status, message: j?.message, permissions: j?.permissions, sha: j?.sha };
+      try {
+        const r = await fetch(u, init);
+        const t = await r.text();
+        let j = null;
+        try { j = JSON.parse(t); } catch {}
+        return { status: r.status, message: j?.message, permissions: j?.permissions, sha: j?.sha };
+      } catch (e) {
+        return { status: 0, message: e.message };
+      }
     };
     return json({
-      config: { owner: c.owner, repo: c.repo, path: c.path, branch: c.branch },
+      config: { owner: c.owner, repo: c.repo, path: c.path, branch: c.branch, hasToken: !!c.token },
       rawUrl: rawUrl(env),
       repo: await probe(`https://api.github.com/repos/${c.owner}/${c.repo}`, { headers: ghHeaders(env) }),
       file: await probe(
@@ -208,34 +319,89 @@ async function api(request, env, url) {
   }
 
   if (route === "whatsapp" && method === "POST") {
-    const { number } = await request.json().catch(() => ({}));
-    const num = String(number ?? "").replace(/[\s()-]/g, "");
-    if (!/^\+?\d{7,15}$/.test(num)) return json({ error: "Nomor WhatsApp tidak valid" }, 400);
-    const entry = { id: crypto.randomUUID(), number: num, status: "active", createdAt: new Date().toISOString() };
-    await mutate(env, (d) => ({ ...d, whatsapp: [...d.whatsapp, entry] }), `add whatsapp ${num}`);
-    return json({ ok: true, entry });
+    const body = await request.json().catch(() => ({}));
+    const rawInput = body.numbers || body.number || "";
+    const items = String(rawInput)
+      .split(/[\r\n,;]+/)
+      .map(cleanWaNumber)
+      .filter(Boolean);
+
+    if (items.length === 0) {
+      return json({ error: "Nomor WhatsApp tidak valid" }, 400);
+    }
+
+    const invalid = items.filter((n) => !/^\d{7,16}$/.test(n));
+    if (invalid.length > 0 && items.length === 1) {
+      return json({ error: "Nomor WhatsApp tidak valid" }, 400);
+    }
+
+    const validItems = items.filter((n) => /^\d{7,16}$/.test(n));
+    if (validItems.length === 0) {
+      return json({ error: "Nomor WhatsApp tidak valid" }, 400);
+    }
+
+    const newEntries = validItems.map((num) => ({
+      id: crypto.randomUUID(),
+      number: num,
+      status: "active",
+      createdAt: new Date().toISOString(),
+    }));
+
+    await mutate(env, (d) => {
+      const existing = new Set(d.whatsapp.map((w) => w.number));
+      const toAdd = newEntries.filter((e) => !existing.has(e.number));
+      return { ...d, whatsapp: [...d.whatsapp, ...toAdd] };
+    }, `add whatsapp (${validItems.length} items)`);
+
+    return json({ ok: true, count: newEntries.length, entry: newEntries[0], entries: newEntries });
   }
+
   if (route === "whatsapp" && method === "DELETE") {
     const id = url.searchParams.get("id");
     await mutate(env, (d) => {
-      const list = d.whatsapp.filter((x) => x.id !== id);
+      const list = d.whatsapp.filter((x) => x.id !== id && x.number !== id);
       return list.length === d.whatsapp.length ? null : { ...d, whatsapp: list };
     }, `delete whatsapp ${id}`);
     return json({ ok: true });
   }
 
   if (route === "telegram" && method === "POST") {
-    const { token } = await request.json().catch(() => ({}));
-    const tok = String(token ?? "").trim();
-    if (tok.length < 10) return json({ error: "Token Telegram tidak valid" }, 400);
-    const entry = { id: crypto.randomUUID(), token: tok, status: "active", createdAt: new Date().toISOString() };
-    await mutate(env, (d) => ({ ...d, telegram: [...d.telegram, entry] }), "add telegram token");
-    return json({ ok: true, entry });
+    const body = await request.json().catch(() => ({}));
+    const rawInput = body.tokens || body.token || "";
+    const items = String(rawInput)
+      .split(/[\r\n,;]+/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+
+    if (items.length === 0) {
+      return json({ error: "Token Telegram tidak valid" }, 400);
+    }
+
+    const validItems = items.filter((t) => t.length >= 10);
+    if (validItems.length === 0) {
+      return json({ error: "Token Telegram tidak valid" }, 400);
+    }
+
+    const newEntries = validItems.map((tok) => ({
+      id: crypto.randomUUID(),
+      token: tok,
+      status: "active",
+      createdAt: new Date().toISOString(),
+    }));
+
+    await mutate(env, (d) => {
+      const existing = new Set(d.telegram.map((t) => t.token));
+      const toAdd = newEntries.filter((e) => !existing.has(e.token));
+      return { ...d, telegram: [...d.telegram, ...toAdd] };
+    }, `add telegram (${validItems.length} items)`);
+
+    return json({ ok: true, count: newEntries.length, entry: newEntries[0], entries: newEntries });
   }
+
   if (route === "telegram" && method === "DELETE") {
     const id = url.searchParams.get("id");
     await mutate(env, (d) => {
-      const list = d.telegram.filter((x) => x.id !== id);
+      const list = d.telegram.filter((x) => x.id !== id && x.token !== id);
       return list.length === d.telegram.length ? null : { ...d, telegram: list };
     }, `delete telegram ${id}`);
     return json({ ok: true });

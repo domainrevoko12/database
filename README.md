@@ -35,35 +35,37 @@ add-database/
 
 ## Setup Environment (`.env`)
 
-Isi `ADMIN_PASSWORD` dan `SESSION_SECRET` dengan nilai random sendiri, lalu isi repo GitHub tujuan:
+Isi `ADMIN_PASSWORD` (atau `PW_ADMIN_LOGIN`), lalu isi konfigurasi GitHub repo database:
 
 ```env
 # --- Login ---
-ADMIN_PASSWORD=ganti-password-ini
-SESSION_SECRET=ganti-secret-acak-panjang
+ADMIN_PASSWORD=Riyan.123
+SESSION_SECRET=kunci-rahasia-panjang-untuk-session
 
 # --- GitHub (repo database) ---
 GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-GITHUB_REPO_USERNAME=username-repo-database
-GITHUB_REPO_NAME=nama-repo-database
+GITHUB_REPO_USERNAME=domainrevoko12
+GITHUB_REPO_NAME=database
 GITHUB_FILE_PATH=database.json
 GITHUB_BRANCH=main
 ```
 
-| Variabel | Keterangan |
-|---|---|
-| `ADMIN_PASSWORD` | Password untuk login ke website |
-| `SESSION_SECRET` | Kunci penanda tangan cookie session (biarkan berbeda dari password) |
-| `GITHUB_TOKEN` | Personal access token GitHub, minimal scope `repo` (Contents: RW) |
-| `GITHUB_REPO_USERNAME` | Username / owner repo database |
-| `GITHUB_REPO_NAME` | Nama repo database |
-| `GITHUB_FILE_PATH` | Path file di repo (default `database.json`) |
-| `GITHUB_BRANCH` | Branch target (default `main`) |
+| Variabel | Alias Kompatibel | Keterangan |
+|---|---|---|
+| `ADMIN_PASSWORD` | `PW_ADMIN_LOGIN`, `PASSWORD` | Password untuk login ke website |
+| `SESSION_SECRET` | `SECRET` | Kunci penanda tangan cookie session |
+| `GITHUB_TOKEN` | `GH_TOKEN`, `TOKEN` | Personal access token GitHub, minimal scope `repo` (Contents: RW) |
+| `GITHUB_REPO_USERNAME` | `GITHUB_OWNER`, `GITHUB_USER` | Username / owner repo database (default: `domainrevoko12`) |
+| `GITHUB_REPO_NAME` | `GITHUB_REPO`, `REPO` | Nama repo database (default: `database`) |
+| `GITHUB_FILE_PATH` | `FILE_PATH` | Path file di repo (default: `database.json`) |
+| `GITHUB_BRANCH` | `BRANCH` | Branch target (default: `main`) |
 
-> Repo database cukup berisi satu file `database.json` dengan isi:
+> Link Raw otomatis: `https://raw.githubusercontent.com/domainrevoko12/database/main/database.json`
+> Repo database berisi file `database.json` dengan format:
 > ```json
 > { "whatsapp": [], "telegram": [] }
 > ```
+> *Sistem juga kompatibel dengan database lama bertipe array `[{ "number": "..." }]` secara otomatis.*
 
 ---
 
