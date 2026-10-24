@@ -1,11 +1,4 @@
 {
-  "whatsapp": [
-    {
-      "id": "52c2ae4a-00f3-49bf-b78b-d898fffd758d",
-      "number": "085175270854",
-      "status": "active",
-      "createdAt": "2026-10-24T03:14:33.009Z"
-    }
-  ],
+  "whatsapp": [],
   "telegram": []
 }
