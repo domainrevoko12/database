@@ -1,4 +1,11 @@
 {
-  "whatsapp": [],
+  "whatsapp": [
+    {
+      "id": "36fe60d1-ccd0-4f4a-9e75-c4ecbf5bf521",
+      "number": "6288985152635",
+      "status": "active",
+      "createdAt": "2026-10-24T04:08:10.197Z"
+    }
+  ],
   "telegram": []
 }
